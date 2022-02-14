@@ -1,0 +1,186 @@
+var express = require('express');
+
+var router = express.Router();
+
+var env = require('dotenv').config();
+
+const multer = require('multer');
+
+const AWS = require('aws-sdk');
+
+
+
+const service = require('../src/app/s3.service')
+
+
+
+var accessKeyId = process.env.AWS_ACCESS_KEY;
+
+var secretAccessKey = process.env.AWS_SECRET_KEY;
+
+
+
+const s3Client = new AWS.S3({
+
+    accessKeyId: accessKeyId,
+
+    secretAccessKey: secretAccessKey,
+
+    region: 'ap-south-1'
+
+});
+
+const uploadParams = {
+
+    Bucket: process.env.BUCKET,
+
+    Key: secretAccessKey, // pass key
+
+    Body: null, // pass file body
+
+    ACL: 'public-read'
+
+};
+
+
+
+router.post('/image_upload_s3', async (req, res) => {
+
+    try {
+
+        await service.getCurrentFolder(req.body).then(async folderDetails => {
+
+
+
+            console.log("FOLDER", folderDetails.folder_name);
+
+            let currentFolder = folderDetails.folder_name;
+
+
+
+            AWS.config.setPromisesDependency();
+
+            AWS.config.update({
+
+                accessKeyId: accessKeyId,
+
+                secretAccessKey: secretAccessKey,
+
+                region: 'ap-south-1'
+
+            })
+
+
+
+            const s3 = new AWS.S3();
+
+            const response = await s3.listObjectsV2({
+
+                Bucket: process.env.BUCKET,
+
+                Delimiter: '/',
+
+                Prefix: 'saathi_dev/' + currentFolder + '/'  // dev
+
+                // Prefix: 'saathi_prod/' + currentFolder + '/' // prod
+
+            }).promise();
+
+
+
+            console.log("FOLDER COUNT", response.KeyCount);
+
+
+
+            // console.log("FILE", req.files);
+
+            // console.log("BODY", req.body);
+
+
+
+            const params = uploadParams;
+
+            var random = Math.floor(Math.random() * 10000);
+
+            const filename = Date.now() + "-" + random + ".jpg"
+
+            let uploadPath = '';
+
+            if (response.KeyCount >= 5000) {
+
+                let incr_num = currentFolder.match(/(\d+)/)[1];
+
+                incr_num++;
+
+                let newFolderName = 'folder' + incr_num;
+
+                uploadPath = "saathi_dev/" + newFolderName + "/" + filename;   // dev
+
+                // uploadPath = "saathi_prod/" + newFolderName + "/" + filename;   // prod
+
+
+
+                await service.insertNewFolder(newFolderName).then(async data => { })
+
+                await service.updateOldFolderStatus(folderDetails.m_id).then(async data => { })
+
+
+
+            } else {
+
+                uploadPath = "saathi_dev/" + currentFolder + "/" + filename;  // dev
+
+                // uploadPath = "saathi_dev/" + currentFolder + "/" + filename;   // prod
+
+            }
+
+
+
+            console.log("UPLOAD PATH", uploadPath);
+
+            uploadParams.Key = uploadPath;
+
+            uploadParams.Body = req.files.file.data;
+
+
+
+            s3Client.upload(params, (err, data) => {
+
+                if (err) {
+
+                    console.log("ERR", err);
+
+                    res.status(500).send({ code: 500, message: "Profile could not updated", error: "Error -> " + err });
+
+                } else {
+
+                    res.json({ code: 200, message: 'Image uploaded successfully', 'location': data.Location, data: data });
+
+                }
+
+            });
+
+
+
+        }).catch(err => {
+
+            //res.send({ code: 500, message: err });
+
+        })
+
+
+
+    } catch (e) {
+
+
+
+    }
+
+
+
+});
+
+
+
+
+module.exports = router;
